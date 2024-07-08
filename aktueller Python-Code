@@ -1,0 +1,94 @@
+import cv2
+import mediapipe as mp
+import serial
+import time
+import math
+
+# Initialize serial communication with Arduino
+arduino = serial.Serial('COM5', 9600)  # Change 'COM3' to your Arduino port
+time.sleep(2)  # Wait for the connection to establish
+
+# Initialize Mediapipe Hand module
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
+mp_drawing = mp.solutions.drawing_utils
+
+
+# Function to calculate the angle between joints
+def calculate_angle(a, b, c):
+    ba = (a[0] - b[0], a[1] - b[1])
+    bc = (c[0] - b[0], c[1] - b[1])
+
+    cosine_angle = (ba[0] * bc[0] + ba[1] * bc[1]) / (
+                math.sqrt(ba[0] ** 2 + ba[1] ** 2) * math.sqrt(bc[0] ** 2 + bc[1] ** 2))
+    angle = math.degrees(math.acos(cosine_angle))
+    return angle
+
+
+# Convert NormalizedLandmark to tuple (x, y)
+def landmark_to_tuple(landmark, width, height):
+    return (int(landmark.x * width), int(landmark.y * height))
+
+
+# Capture video from webcam
+cap = cv2.VideoCapture(0)
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Flip the frame horizontally for a later selfie-view display
+    frame = cv2.flip(frame, 1)
+    h, w, _ = frame.shape
+
+    # Convert the BGR image to RGB
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Process the image and find hands
+    result = hands.process(rgb_frame)
+
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks:
+            # Drawing landmarks on frame
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # Get landmarks
+            landmarks = hand_landmarks.landmark
+
+            # List of finger tip and pip landmarks
+            finger_tips = [landmarks[mp_hands.HandLandmark.THUMB_TIP],
+                           landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP],
+                           landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_TIP],
+                           landmarks[mp_hands.HandLandmark.RING_FINGER_TIP],
+                           landmarks[mp_hands.HandLandmark.PINKY_TIP]]
+
+            finger_pips = [landmarks[mp_hands.HandLandmark.THUMB_IP],
+                           landmarks[mp_hands.HandLandmark.INDEX_FINGER_PIP],
+                           landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_PIP],
+                           landmarks[mp_hands.HandLandmark.RING_FINGER_PIP],
+                           landmarks[mp_hands.HandLandmark.PINKY_PIP]]
+
+            # Calculate angles and map them to servo positions
+            servo_angles = []
+            for tip, pip in zip(finger_tips, finger_pips):
+                tip_coords = landmark_to_tuple(tip, w, h)
+                pip_coords = landmark_to_tuple(pip, w, h)
+                wrist_coords = landmark_to_tuple(landmarks[mp_hands.HandLandmark.WRIST], w, h)
+                angle = calculate_angle(tip_coords, pip_coords, wrist_coords)
+                servo_angle = int(angle / 180 * 180)  # Map angle to servo position
+                servo_angles.append(servo_angle)
+
+            # Send angles to Arduino
+            servo_command = ",".join(map(str, servo_angles))
+            arduino.write((servo_command + "\n").encode())
+
+    cv2.imshow('Hand Tracking', frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release resources
+cap.release()
+cv2.destroyAllWindows()
+arduino.close()
