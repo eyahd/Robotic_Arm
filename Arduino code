@@ -1,0 +1,40 @@
+#include <Servo.h>
+
+Servo thumbServo;
+Servo indexServo;
+Servo middleServo;
+Servo ringServo;
+Servo pinkyServo;
+
+void setup() {
+  thumbServo.attach(3);  // Change pins as needed
+  indexServo.attach(5);
+  middleServo.attach(6);
+  ringServo.attach(9);
+  pinkyServo.attach(10);
+  
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String servoAngles = Serial.readStringUntil('\n');
+    int angles[5];
+    int index = 0;
+
+    for (int i = 0; i < servoAngles.length(); i++) {
+      if (servoAngles[i] == ',') {
+        angles[index++] = servoAngles.substring(0, i).toInt();
+        servoAngles = servoAngles.substring(i + 1);
+        i = -1;
+      }
+    }
+    angles[index] = servoAngles.toInt();
+
+    thumbServo.write(angles[0]);
+    indexServo.write(angles[1]);
+    middleServo.write(angles[2]);
+    ringServo.write(angles[3]);
+    pinkyServo.write(angles[4]);
+  }
+}
